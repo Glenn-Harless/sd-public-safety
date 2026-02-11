@@ -42,7 +42,7 @@ def _export(con: duckdb.DuckDBPyConnection, sql: str, path: Path) -> int:
     return count
 
 
-# ── Track 1: CIBRS Group A → crime.parquet ──────────────────────────────
+# ── Track 1: CIBRS Group A -> crime.parquet ──────────────────────────────
 
 def _transform_crime(con: duckdb.DuckDBPyConnection) -> None:
     """Process CIBRS Group A incidents."""
@@ -95,7 +95,7 @@ def _transform_crime(con: duckdb.DuckDBPyConnection) -> None:
     print(f"    -> {count:,} deduplicated incidents")
 
 
-# ── Track 2: CIBRS Group B → arrests.parquet ───────────────────────────
+# ── Track 2: CIBRS Group B -> arrests.parquet ───────────────────────────
 
 def _transform_arrests(con: duckdb.DuckDBPyConnection) -> None:
     """Process CIBRS Group B arrests."""
@@ -142,7 +142,36 @@ def _transform_arrests(con: duckdb.DuckDBPyConnection) -> None:
     print(f"    -> {count:,} arrest records")
 
 
-# ── Track 3: CFS → cfs.parquet ─────────────────────────────────────────
+# ── Track 3: CFS -> cfs.parquet ─────────────────────────────────────────
+
+def _load_cfs_reference_tables(con: duckdb.DuckDBPyConnection) -> tuple[bool, bool]:
+    """Load CFS reference CSVs if they exist. Returns (has_call_type, has_dispo)."""
+    call_type_csv = RAW_DIR / "call_type_desc.csv"
+    dispo_csv = RAW_DIR / "dispo_code_desc.csv"
+
+    has_call_type = False
+    has_dispo = False
+
+    if call_type_csv.exists():
+        con.execute(f"""
+            CREATE OR REPLACE TABLE ref_call_type AS
+            SELECT * FROM read_csv('{call_type_csv}', header=true, auto_detect=true)
+        """)
+        has_call_type = True
+        count = con.execute("SELECT COUNT(*) FROM ref_call_type").fetchone()[0]
+        print(f"    loaded ref_call_type: {count} rows")
+
+    if dispo_csv.exists():
+        con.execute(f"""
+            CREATE OR REPLACE TABLE ref_dispo AS
+            SELECT * FROM read_csv('{dispo_csv}', header=true, auto_detect=true)
+        """)
+        has_dispo = True
+        count = con.execute("SELECT COUNT(*) FROM ref_dispo").fetchone()[0]
+        print(f"    loaded ref_dispo: {count} rows")
+
+    return has_call_type, has_dispo
+
 
 def _transform_cfs(con: duckdb.DuckDBPyConnection) -> None:
     """Process Calls for Service CSVs."""
@@ -167,30 +196,53 @@ def _transform_cfs(con: duckdb.DuckDBPyConnection) -> None:
         )
     """)
 
+    # Load reference tables for human-readable descriptions
+    has_call_type, has_dispo = _load_cfs_reference_tables(con)
+
+    # Build the call_type_desc and dispo_desc expressions based on
+    # whether reference tables are available.
+    # Reference CSVs use columns: CALL_TYPE / DESCRIPTION for call types,
+    # and DISPO_CODE / DESCRIPTION for dispositions.
+    if has_call_type:
+        call_type_expr = "COALESCE(ct.DESCRIPTION, cfs_raw.CALL_TYPE)"
+        call_type_join = "LEFT JOIN ref_call_type ct ON cfs_raw.CALL_TYPE = ct.CALL_TYPE"
+    else:
+        call_type_expr = "cfs_raw.CALL_TYPE"
+        call_type_join = ""
+
+    if has_dispo:
+        dispo_expr = "COALESCE(dd.DESCRIPTION, cfs_raw.DISPOSITION)"
+        dispo_join = "LEFT JOIN ref_dispo dd ON cfs_raw.DISPOSITION = dd.DISPO_CODE"
+    else:
+        dispo_expr = "cfs_raw.DISPOSITION"
+        dispo_join = ""
+
     # CFS columns are uppercase: INCIDENT_NUM, DATE_TIME, CALL_TYPE, etc.
-    con.execute("""
+    con.execute(f"""
         CREATE OR REPLACE TABLE cfs_dedup AS
         SELECT * EXCLUDE (_rn) FROM (
             SELECT
-                INCIDENT_NUM AS incident_num,
-                TRY_CAST(DATE_TIME AS TIMESTAMP) AS call_timestamp,
-                TRY_CAST(DATE_TIME AS DATE) AS call_date,
-                YEAR(TRY_CAST(DATE_TIME AS DATE)) AS year,
-                MONTH(TRY_CAST(DATE_TIME AS DATE)) AS month,
-                DAYOFWEEK(TRY_CAST(DATE_TIME AS DATE)) AS dow,
-                HOUR(TRY_CAST(DATE_TIME AS TIMESTAMP)) AS hour,
-                DATE_TRUNC('month', TRY_CAST(DATE_TIME AS DATE)) AS month_start,
-                CALL_TYPE AS call_type,
-                CALL_TYPE AS call_type_desc,
-                TRY_CAST(PRIORITY AS INT) AS priority,
-                DISPOSITION AS disposition,
-                DISPOSITION AS dispo_desc,
-                TRY_CAST(BEAT AS VARCHAR) AS beat,
+                cfs_raw.INCIDENT_NUM AS incident_num,
+                TRY_CAST(cfs_raw.DATE_TIME AS TIMESTAMP) AS call_timestamp,
+                TRY_CAST(cfs_raw.DATE_TIME AS DATE) AS call_date,
+                YEAR(TRY_CAST(cfs_raw.DATE_TIME AS DATE)) AS year,
+                MONTH(TRY_CAST(cfs_raw.DATE_TIME AS DATE)) AS month,
+                DAYOFWEEK(TRY_CAST(cfs_raw.DATE_TIME AS DATE)) AS dow,
+                HOUR(TRY_CAST(cfs_raw.DATE_TIME AS TIMESTAMP)) AS hour,
+                DATE_TRUNC('month', TRY_CAST(cfs_raw.DATE_TIME AS DATE)) AS month_start,
+                cfs_raw.CALL_TYPE AS call_type,
+                {call_type_expr} AS call_type_desc,
+                TRY_CAST(cfs_raw.PRIORITY AS INT) AS priority,
+                cfs_raw.DISPOSITION AS disposition,
+                {dispo_expr} AS dispo_desc,
+                TRY_CAST(cfs_raw.BEAT AS VARCHAR) AS beat,
                 ROW_NUMBER() OVER (
-                    PARTITION BY INCIDENT_NUM
-                    ORDER BY TRY_CAST(DATE_TIME AS TIMESTAMP) DESC NULLS LAST
+                    PARTITION BY cfs_raw.INCIDENT_NUM
+                    ORDER BY TRY_CAST(cfs_raw.DATE_TIME AS TIMESTAMP) DESC NULLS LAST
                 ) AS _rn
-            FROM raw_cfs
+            FROM raw_cfs cfs_raw
+            {call_type_join}
+            {dispo_join}
         )
         WHERE _rn = 1
     """)

@@ -28,6 +28,13 @@ st.set_page_config(
     layout="wide",
 )
 st.title("San Diego Public Safety & Crime Patterns")
+st.caption(
+    "Data sources: [SANDAG ARJIS](https://opendata.sandag.org/) (CIBRS crime incidents & arrests) "
+    "and [City of San Diego](https://data.sandiego.gov/) (Calls for Service). "
+    "This dashboard shows **reported incidents**, not actual crime rates. "
+    "Counts are raw totals — not adjusted for population. "
+    "Data may have reporting lags and completeness varies by year and agency."
+)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -60,6 +67,42 @@ def _sidebar_options():
 
 
 years, agencies, categories, cities = _sidebar_options()
+
+# ── About This Data (sidebar expander) ────────────────────────────────
+with st.sidebar.expander("About This Data", expanded=False):
+    st.markdown("""
+**Data Sources**
+
+- **Crime Incidents (CIBRS Group A & B):** SANDAG Automated Regional
+  Justice Information System (ARJIS), via the
+  [SANDAG Open Data Portal](https://opendata.sandag.org/).
+- **Calls for Service:** San Diego Police Department dispatch records,
+  via the [City of San Diego Open Data Portal](https://data.sandiego.gov/datasets/).
+
+**What This Data Represents**
+
+These figures reflect **reported incidents**, not actual crime rates.
+An incident only appears in this dataset after it has been reported to
+and recorded by a law enforcement agency.
+
+**Key Limitations**
+
+- There is a **reporting lag**; recent months may be incomplete.
+- **Data completeness varies by year** and by reporting agency.
+- **Geographic gaps** are possible where incidents lack location data.
+- Crime counts shown are **raw counts, not per-capita rates**.
+  Comparisons between areas of different population sizes require
+  population-adjusted rates, which are not provided here.
+- Calls for Service data covers SDPD only (City of San Diego), not
+  the full county.
+
+**Methodology**
+
+Raw data is deduplicated on incident ID and transformed into
+standardized Parquet files. Aggregations are pre-computed for
+dashboard performance. No statistical modeling or imputation
+is applied; all figures represent direct counts from source data.
+""")
 
 st.sidebar.header("Filters")
 year_range = st.sidebar.slider(
@@ -544,6 +587,12 @@ with tab_types:
 with tab_equity:
     # Victim demographics
     st.subheader("Victim Demographics")
+    st.caption(
+        "Note: These are raw incident counts, not per-capita rates. "
+        "Differences in counts reflect reporting patterns, not "
+        "population-adjusted crime rates. Comparisons across demographic "
+        "groups require population denominators that are not included here."
+    )
     col1, col2 = st.columns(2)
 
     with col1:

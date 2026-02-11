@@ -1,5 +1,5 @@
 [theme]
 primaryColor = "#83c9ff"
 
-[server]
-headless = true
+[browser]
+gatherUsageStats = false

@@ -23,10 +23,11 @@ GROUP_B_CODES = ("90D", "90C", "90B", "90E")  # DUI, disorderly, trespass, vagra
 # ── CFS CSV sources (SDPD) ────────────────────────────────────────────
 CFS_BASE = "https://seshat.datasd.org/police_calls_for_service"
 CFS_YEARS = range(2015, CURRENT_YEAR + 1)
-CFS_REF_FILES = [
-    "call_type_desc.csv",
-    "dispo_code_desc.csv",
-]
+CFS_REF_FILES = {
+    "pd_cfs_calltypes_datasd.csv": "call_type_desc.csv",
+    "pd_dispo_codes_datasd.csv": "dispo_code_desc.csv",
+}
+CFS_DISPO_BASE = "https://seshat.datasd.org/pd"
 
 
 def _soda_fetch(
@@ -132,9 +133,12 @@ def ingest(force: bool = False) -> list[Path]:
 
     # ── CFS reference files ──
     print("\n  CFS reference files:")
-    for ref in CFS_REF_FILES:
-        url = f"{CFS_BASE}/{ref}"
-        out = RAW_DIR / ref
+    for remote_name, local_name in CFS_REF_FILES.items():
+        if remote_name.startswith("pd_dispo"):
+            url = f"{CFS_DISPO_BASE}/{remote_name}"
+        else:
+            url = f"{CFS_BASE}/{remote_name}"
+        out = RAW_DIR / local_name
         p = _csv_download(url, out, force=force)
         if p:
             paths.append(p)
