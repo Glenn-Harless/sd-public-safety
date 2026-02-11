@@ -3,6 +3,8 @@
 ## Overview
 Analyze crime patterns, police calls for service, and resource allocation across San Diego. Map crime by type and geography, identify temporal patterns, and examine clearance rates.
 
+**Live Dashboard**: https://sd-public-safety.streamlit.app/
+
 ## Key Questions
 - Where are calls for service concentrated vs. where are officers deployed?
 - What are the temporal patterns for different crime types?
